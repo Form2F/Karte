@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Form2F Kartenmacher</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+/* VOICE: verspielt-nächtlich, wie ein Spiele-HUD über einer Stadt
+   IDEA: die Seite ist selbst ein Radar – Kreis auf der Karte = Untersetzer
+   PICTURE: große Live-Karte mit Radar-Ausschnitt, daneben der fertige Untersetzer
+   COLOUR+TYPE: Nachtschwarz, Land-Graugrün, Leben-Grün, Rüstung-Blau; Archivo Black + Archivo
+   LAYOUT: Karte links groß, Schritte rechts; unter 860px gestapelt */
+:root{color-scheme:dark;--bg:#0d1013;--panel:#161b20;--line:#2a323a;--ink:#eef2f0;--mute:#9aa7a2;--land:#4B5A4E;--road:#C9C9C9;--water:#3E6FB5;--green:#4CAF50;--blue:#46B4F0}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Archivo,system-ui,sans-serif;overflow-x:clip}
+h1,h2,.btn,.step b{font-family:"Archivo Black",Archivo,sans-serif;font-weight:400}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px max(4vw,16px);border-bottom:1px solid var(--line)}
+.logo{font-family:"Archivo Black";font-size:22px;letter-spacing:.5px}
+.logo span{color:var(--green)}
+header a{color:var(--mute);text-decoration:none;font-size:14px}
+main{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px;padding:24px max(4vw,16px) 40px;max-width:1320px;margin:auto}
+h1{font-size:clamp(30px,4vw,46px);line-height:1.05;margin:0 0 8px;text-wrap:balance}
+.lead{color:var(--mute);margin:0 0 18px;max-width:60ch}
+.mapwrap{position:relative;height:min(72vh,640px);min-height:380px;border-radius:18px;overflow:hidden;border:1px solid var(--line)}
+#map{position:absolute;inset:0;background:#1d2329}
+#radar{position:absolute;left:50%;top:50%;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:500;
+ border:6px solid #0b0b0b;box-shadow:0 0 0 2px var(--green),0 0 0 4000px rgba(10,12,15,.62)}
+#radar::after{content:"";position:absolute;left:50%;top:50%;width:0;height:0;transform:translate(-50%,-60%);
+ border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:22px solid #fff;filter:drop-shadow(0 1px 2px #000)}
+.hint{position:absolute;left:12px;bottom:12px;z-index:600;background:rgba(13,16,19,.85);padding:6px 10px;border-radius:8px;font-size:13px;color:var(--mute)}
+aside{display:flex;flex-direction:column;gap:14px}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+.step b{display:flex;align-items:center;gap:10px;font-size:17px;margin-bottom:10px}
+.num{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--green);color:#0b0b0b;font-size:14px;flex:none}
+.row{display:flex;gap:8px}
+input[type=text]{flex:1;font:16px Archivo,sans-serif;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:#0f1317;color:var(--ink);min-height:44px}
+input:focus-visible,button:focus-visible,label:focus-within{outline:2px solid var(--blue);outline-offset:2px}
+.btn{border:0;border-radius:10px;padding:0 16px;min-height:44px;background:var(--green);color:#0b0b0b;font-size:15px;cursor:pointer}
+.btn.blue{background:var(--blue)}
+.btn.big{width:100%;font-size:18px;min-height:54px}
+.btn:disabled{opacity:.45;cursor:default}
+#treffer{list-style:none;margin:8px 0 0;padding:0}
+#treffer button{width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);color:var(--ink);padding:9px 4px;font:14px Archivo,sans-serif;cursor:pointer;min-height:44px}
+#treffer button:hover{color:var(--green)}
+.slider{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;font-size:14px;color:var(--mute)}
+.slider input{grid-column:1/-1;width:100%;accent-color:var(--green);min-height:30px}
+.slider output{color:var(--ink);font-weight:600;white-space:nowrap}
+.check{display:flex;gap:10px;align-items:center;font-size:14px;color:var(--mute);margin-top:8px;min-height:36px;cursor:pointer}
+.check input{width:20px;height:20px;accent-color:var(--green)}
+#status{font-size:14px;color:var(--mute);min-height:22px;margin:8px 0 0}
+#status.err{color:#ff8a7a}
+.vorschau{display:none;gap:14px;align-items:center;margin-top:12px}
+.vorschau.on{display:grid;grid-template-columns:150px minmax(0,1fr)}
+.vorschau svg{width:150px;height:150px}
+.vorschau p{margin:0;font-size:14px;color:var(--mute)}
+.anleitung{background:linear-gradient(135deg,#17211b,#14202a);border:1px solid var(--line);border-radius:16px;padding:16px}
+.anleitung ol{margin:6px 0 0;padding-left:20px;font-size:15px}
+.anleitung li{margin:4px 0}
+.anleitung a{color:var(--blue)}
+footer{color:var(--mute);font-size:13px;text-align:center;padding:0 16px 30px}
+footer a{color:var(--mute)}
+@media(max-width:860px){main{grid-template-columns:minmax(0,1fr)}.mapwrap{height:62vh}}
+@media(prefers-reduced-motion:no-preference){#radar{transition:width .25s,height .25s}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Form<span>2</span>F</div>
+  <a href="https://makerworld.com/@Form2F">MakerWorld ↗</a>
+</header>
+<main>
+  <section>
+    <h1>Deine Straße als Minimap-Untersetzer</h1>
+    <p class="lead">Adresse eingeben, Ausschnitt wählen, Karte herunterladen – dann auf MakerWorld hochladen und drucken.</p>
+    <div class="mapwrap">
+      <div id="map" role="application" aria-label="Karte zum Wählen des Ausschnitts"></div>
+      <div id="radar" aria-hidden="true"></div>
+      <div class="hint">Karte verschieben: Der Pfeil ist die Mitte deines Untersetzers</div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="step">
+      <b><span class="num">1</span>Adresse suchen</b>
+      <form id="suche" class="row">
+        <input id="adresse" type="text" placeholder="z. B. Musterstraße 1, Augsburg" autocomplete="street-address" aria-label="Adresse">
+        <button class="btn" type="submit">Suchen</button>
+      </form>
+      <ul id="treffer"></ul>
+    </div>
+
+    <div class="step">
+      <b><span class="num">2</span>Ausschnitt einstellen</b>
+      <div class="slider">
+        <label for="radius">Kartengröße (Radius)</label><output id="radiusOut">400 m</output>
+        <input id="radius" type="range" min="150" max="1500" step="50" value="400">
+      </div>
+      <label class="check"><input id="neben" type="checkbox" checked> Kleine Straßen anzeigen</label>
+      <label class="check"><input id="wasserAn" type="checkbox" checked> Wasser anzeigen (Flüsse, Seen)</label>
+    </div>
+
+    <div class="step">
+      <b><span class="num">3</span>Karte herunterladen</b>
+      <button id="los" class="btn big blue" type="button">Karte erstellen</button>
+      <p id="status" role="status"></p>
+      <div id="vorschau" class="vorschau">
+        <svg id="mini" viewBox="-50 -50 100 100" aria-label="Vorschau des Untersetzers"></svg>
+        <div>
+          <p>So sieht dein Untersetzer ungefähr aus.</p>
+          <button id="dl" class="btn" type="button" style="margin-top:10px">⬇ SVG speichern</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="anleitung">
+      <b>Und dann auf MakerWorld:</b>
+      <ol>
+        <li>Beim Minimap-Untersetzer auf <b>„Anpassen“</b> klicken.</li>
+        <li><b>Kartenquelle</b> auf „Hochgeladene Karte“ stellen und bei <b>„Karte hochladen“</b> die gespeicherte SVG wählen.</li>
+        <li>Namen eintippen, 3MF herunterladen, drucken.</li>
+      </ol>
+      <p style="margin:10px 0 0;font-size:14px"><a href="https://makerworld.com/@Form2F">Zum Modell auf MakerWorld ↗</a></p>
+    </div>
+  </aside>
+</main>
+<footer>Kartendaten © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap-Mitwirkende</a> (ODbL) · Suche: Nominatim · Daten: Overpass API · Ein Werkzeug von Form2F</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+{
+const FELD = 84;            // mm: Kartenkreis im Modell
+const H = FELD / 2;
+const FG = H + 0.5;          // mm: Feldgrenze (85 × 85 mm je Feld)
+const WASSER_X = 100;       // mm: Versatz des Wasser-Felds in der SVG
+const BREITE = {motorway:2.6,trunk:2.4,primary:2.2,secondary:2.0,tertiary:1.7,motorway_link:1.5,trunk_link:1.5,primary_link:1.4,secondary_link:1.3,tertiary_link:1.2,
+  residential:1.2,unclassified:1.2,living_street:1.1,pedestrian:1.0,service:1.0};
+const KLEIN = new Set(['residential','unclassified','living_street','pedestrian','service']);
+const OVERPASS = ['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+
+const $ = id => document.getElementById(id);
+const map = L.map('map',{zoomControl:true}).setView([48.3705,10.8978],16);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+
+let letzteSvg = null, letzteMitte = null;
+
+function radiusM(){ return +$('radius').value; }
+function radarAnpassen(){
+  const c = map.getCenter();
+  const mpp = 40075016.686 * Math.cos(c.lat*Math.PI/180) / Math.pow(2, map.getZoom()+8);
+  const d = 2 * radiusM() / mpp;
+  $('radar').style.width = $('radar').style.height = d + 'px';
+}
+function radiusEinpassen(){
+  const c = map.getCenter(), r = radiusM();
+  const dLat = r/111320*1.25, dLon = r/(111320*Math.cos(c.lat*Math.PI/180))*1.25;
+  map.fitBounds([[c.lat-dLat,c.lng-dLon],[c.lat+dLat,c.lng+dLon]],{animate:false});
+  map.setView(c, map.getZoom(), {animate:false});
+  radarAnpassen();
+}
+map.on('zoom move', radarAnpassen);
+map.on('resize', () => radiusEinpassen());
+$('radius').addEventListener('input', () => { $('radiusOut').textContent = radiusM() + ' m'; radiusEinpassen(); veraltet(); });
+['neben','wasserAn'].forEach(id => $(id).addEventListener('change', veraltet));
+map.on('moveend', () => { if(letzteMitte && map.distance(letzteMitte, map.getCenter()) > 2) veraltet(); });
+radiusEinpassen();
+
+function veraltet(){ if(letzteSvg){ letzteMitte = null; $('vorschau').classList.remove('on'); letzteSvg = null; status('Ausschnitt geändert – bitte neu erstellen.'); } }
+function status(t, fehler){ $('status').textContent = t; $('status').className = fehler ? 'err' : ''; }
+
+// ---------- 1. Adresse suchen ----------
+$('suche').addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = $('adresse').value.trim(); if(!q) return;
+  $('treffer').innerHTML = '<li style="color:var(--mute);font-size:14px;padding:8px 4px">Suche …</li>';
+  try{
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=de&q=' + encodeURIComponent(q));
+    const liste = await r.json();
+    $('treffer').innerHTML = '';
+    if(!liste.length){ $('treffer').innerHTML = '<li style="color:#ff8a7a;font-size:14px;padding:8px 4px">Nichts gefunden. Mit Ort versuchen, z. B. „Hauptstraße 5, Ulm“.</li>'; return; }
+    liste.forEach(t => {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.type = 'button'; b.textContent = t.display_name;
+      b.addEventListener('click', () => { map.setView([+t.lat, +t.lon], map.getZoom(), {animate:false}); radiusEinpassen(); $('treffer').innerHTML=''; });
+      li.appendChild(b); $('treffer').appendChild(li);
+    });
+    if(liste.length === 1) $('treffer').querySelector('button').click();
+  }catch(err){ $('treffer').innerHTML = '<li style="color:#ff8a7a;font-size:14px;padding:8px 4px">Suche gerade nicht erreichbar – Karte einfach von Hand verschieben.</li>'; }
+});
+
+// ---------- 3. Karte erstellen ----------
+async function overpass(lat, lon, r){
+  const a = `(around:${Math.round(r*1.2)},${lat},${lon})`;
+  const q = `[out:json][timeout:40];(
+    way["highway"~"^(${Object.keys(BREITE).join('|')})$"]${a};
+    way["natural"="water"]${a}; way["waterway"~"^(riverbank|river|canal|stream)$"]${a};
+    way["landuse"~"^(reservoir|basin)$"]${a}; relation["natural"="water"]${a}; relation["waterway"="riverbank"]${a};
+    way["natural"="coastline"]${a};
+  );out geom;`;
+  let letzter;
+  for(const url of OVERPASS){
+    try{
+      const res = await fetch(url, {method:'POST', body:'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+      if(res.ok) return await res.json();
+      letzter = new Error('Server ' + res.status);
+    }catch(e){ letzter = e; }
+  }
+  throw letzter;
+}
+
+$('los').addEventListener('click', async () => {
+  const c = map.getCenter(), r = radiusM();
+  $('los').disabled = true; status('Lade Straßen und Wasser … (kann 10–20 Sekunden dauern)');
+  try{
+    const daten = await overpass(c.lat, c.lng, r);
+    const geo = bauen(daten, c.lat, c.lng, r, $('neben').checked, $('wasserAn').checked);
+    if(!geo.strassen.length) { status('Hier wurden keine Straßen gefunden – anderen Ausschnitt wählen.', true); return; }
+    letzteSvg = svgDatei(geo, c, r); letzteMitte = c;
+    zeigeVorschau(geo);
+    status(`Fertig: ${geo.anzahl} Straßenstücke. Jetzt die SVG speichern.`);
+  }catch(e){
+    status('Kartendaten gerade nicht erreichbar. Bitte in einer Minute nochmal versuchen.', true);
+  }finally{ $('los').disabled = false; }
+});
+
+// Projektion: Mittelpunkt = (0,0), Einheit mm, y nach oben
+function projektor(lat0, lon0, r){
+  const s = H / r, kx = 111320*Math.cos(lat0*Math.PI/180), ky = 111320;
+  return p => [(p.lon - lon0)*kx*s, (p.lat - lat0)*ky*s];
+}
+
+// Strecke auf Quadrat [-L, L]² zuschneiden (Liang-Barsky)
+function kappeStrecke(a, b, G){
+  let t0 = 0, t1 = 1; const dx = b[0]-a[0], dy = b[1]-a[1];
+  for(const [p, q] of [[-dx, a[0]+G],[dx, G-a[0]],[-dy, a[1]+G],[dy, G-a[1]]]){
+    if(p === 0){ if(q < 0) return null; continue; }
+    const t = q/p;
+    if(p < 0){ if(t > t1) return null; if(t > t0) t0 = t; } else { if(t < t0) return null; if(t < t1) t1 = t; }
+  }
+  return [[a[0]+t0*dx, a[1]+t0*dy],[a[0]+t1*dx, a[1]+t1*dy]];
+}
+// Polygon auf Quadrat zuschneiden (Sutherland-Hodgman)
+function kappePolygon(pts, G){
+  const kanten = [[p=>p[0]>=-G,(a,b)=>schnitt(a,b,0,-G)],[p=>p[0]<=G,(a,b)=>schnitt(a,b,0,G)],[p=>p[1]>=-G,(a,b)=>schnitt(a,b,1,-G)],[p=>p[1]<=G,(a,b)=>schnitt(a,b,1,G)]];
+  let out = pts;
+  for(const [innen, sx] of kanten){
+    const inp = out; out = [];
+    for(let i=0;i<inp.length;i++){
+      const a = inp[i], b = inp[(i+1)%inp.length];
+      if(innen(b)){ if(!innen(a)) out.push(sx(a,b)); out.push(b); } else if(innen(a)) out.push(sx(a,b));
+    }
+    if(!out.length) break;
+  }
+  return out;
+}
+function schnitt(a, b, ax, v){ const t = (v-a[ax])/(b[ax]-a[ax]); return [a[0]+t*(b[0]-a[0]), a[1]+t*(b[1]-a[1])]; }
+
+// Linie als Flächen: je Abschnitt ein Rechteck, je Knick ein Kreis (OpenSCAD vereinigt alle Pfade)
+function linieZuFlaechen(pts, w, ziel){
+  const h = w/2;
+  for(let i=0;i<pts.length-1;i++){
+    const k = kappeStrecke(pts[i], pts[i+1], FG+2); if(!k) continue;
+    const [a, b] = k, dx = b[0]-a[0], dy = b[1]-a[1], l = Math.hypot(dx, dy);
+    if(l < 0.05) continue;
+    const nx = -dy/l*h, ny = dx/l*h;
+    for(const poly of [[[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],[b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]], kreis(a, h), kreis(b, h)]){
+      const k = kappePolygon(poly, FG); if(k.length > 2) ziel.push(k);
+    }
+  }
+}
+function kreis(c, r){ const n = 10, p = []; for(let i=0;i<n;i++){ const t = i/n*2*Math.PI; p.push([c[0]+r*Math.cos(t), c[1]+r*Math.sin(t)]); } return p; }
+function vereinfache(pts, tol){ const o = [pts[0]]; for(let i=1;i<pts.length-1;i++){ const l = o[o.length-1]; if(Math.hypot(pts[i][0]-l[0], pts[i][1]-l[1]) >= tol) o.push(pts[i]); } if(pts.length>1) o.push(pts[pts.length-1]); return o; }
+
+// Wege einer Relation zu geschlossenen Ringen verbinden
+function ringe(teile){
+  const offen = teile.map(t => t.slice()), fertig = [];
+  const gleich = (a, b) => Math.abs(a[0]-b[0]) < 1e-6 && Math.abs(a[1]-b[1]) < 1e-6;
+  while(offen.length){
+    let ring = offen.shift(), weiter = true;
+    while(!gleich(ring[0], ring[ring.length-1]) && weiter){
+      weiter = false;
+      for(let i=0;i<offen.length;i++){
+        const t = offen[i], ende = ring[ring.length-1];
+        if(gleich(t[0], ende)){ ring = ring.concat(t.slice(1)); }
+        else if(gleich(t[t.length-1], ende)){ ring = ring.concat(t.slice().reverse().slice(1)); }
+        else continue;
+        offen.splice(i, 1); weiter = true; break;
+      }
+    }
+    if(ring.length > 3) fertig.push(ring);
+  }
+  return fertig;
+}
+
+function bauen(daten, lat0, lon0, r, mitKlein, mitWasser){
+  const P = projektor(lat0, lon0, r), strassen = [], wasser = [];
+  let anzahl = 0;
+  for(const el of daten.elements || []){
+    const t = el.tags || {};
+    if(el.type === 'way' && el.geometry && t.highway && BREITE[t.highway]){
+      if(!mitKlein && KLEIN.has(t.highway)) continue;
+      if(t.area === 'yes') continue;
+      const pts = vereinfache(el.geometry.map(P), 0.3);
+      const vorher = strassen.length; linieZuFlaechen(pts, BREITE[t.highway], strassen);
+      if(strassen.length > vorher) anzahl++;
+    }
+    if(!mitWasser) continue;
+    const istFlaeche = t.natural === 'water' || t.waterway === 'riverbank' || t.landuse === 'reservoir' || t.landuse === 'basin';
+    if(el.type === 'way' && el.geometry){
+      const pts = el.geometry.map(P);
+      const zu = pts.length > 3 && el.geometry[0].lat === el.geometry[pts.length-1].lat && el.geometry[0].lon === el.geometry[pts.length-1].lon;
+      if(istFlaeche && zu){ const k = kappePolygon(pts, FG); if(k.length > 2) wasser.push([k]); }
+      else if(t.waterway === 'river' || t.waterway === 'canal') linieZuFlaechen(vereinfache(pts, 0.3), 3.0, wasser.flaechen || (wasser.flaechen = []));
+      else if(t.waterway === 'stream') linieZuFlaechen(vereinfache(pts, 0.3), 0.9, wasser.flaechen || (wasser.flaechen = []));
+      else if(t.natural === 'coastline') kueste(pts, wasser);
+    }
+    if(el.type === 'relation' && istFlaeche && el.members){
+      const geo = rolle => el.members.filter(m => m.type === 'way' && m.role === rolle && m.geometry).map(m => m.geometry.map(g => [g.lon, g.lat]));
+      const proj = ring => ring.map(([lon, lat]) => P({lat, lon}));
+      const pfad = [];
+      for(const rg of ringe(geo('outer'))){ const k = kappePolygon(proj(rg), FG); if(k.length > 2) pfad.push(k); }
+      for(const rg of ringe(geo('inner'))){ const k = kappePolygon(proj(rg), FG); if(k.length > 2) pfad.push(k); }
+      if(pfad.length) wasser.push(pfad);
+    }
+  }
+  for(const f of wasser.flaechen || []) wasser.push([f]);
+  return {strassen, wasser, anzahl};
+}
+// Küstenlinie: Meer liegt rechts der Linienrichtung – als Streifen angenähert
+function kueste(pts, wasser){
+  const b = 30;
+  for(let i=0;i<pts.length-1;i++){
+    const a = pts[i], c = pts[i+1], dx = c[0]-a[0], dy = c[1]-a[1], l = Math.hypot(dx, dy); if(l < 0.01) continue;
+    const nx = dy/l*b, ny = -dx/l*b;
+    const k = kappePolygon([a, c, [c[0]+nx, c[1]+ny], [a[0]+nx, a[1]+ny]], FG); if(k.length > 2) wasser.push([k]);
+  }
+}
+
+// ---------- SVG für den MakerWorld-Upload ----------
+// 185 × 85 mm: links Straßen (0–85), rechts Wasser (100–185); Eckmarken fixieren die Größe.
+function svgDatei(geo, c, r){
+  const f = n => n.toFixed(2);
+  const ring = (p, dx) => 'M' + p.map(q => f(q[0]+FG+dx) + ',' + f(FG-q[1])).join('L') + 'Z';
+  const teile = [];
+  teile.push(`<svg xmlns="http://www.w3.org/2000/svg" width="185mm" height="85mm" viewBox="0 0 185 85">`);
+  teile.push(`<!-- Form2F Minimap-Karte | Mitte ${c.lat.toFixed(5)}, ${c.lng.toFixed(5)} | Radius ${r} m | Kartendaten (c) OpenStreetMap-Mitwirkende, ODbL -->`);
+  teile.push('<g fill="#000">');
+  for(const p of geo.strassen) teile.push(`<path d="${ring(p, 0)}"/>`);
+  for(const pfad of geo.wasser) teile.push(`<path fill-rule="evenodd" d="${pfad.map(p => ring(p, WASSER_X)).join('')}"/>`);
+  for(const [x, y] of [[0,0],[84.9,0],[0,84.9],[84.9,84.9],[100,0],[184.9,0],[100,84.9],[184.9,84.9]]) teile.push(`<rect x="${x}" y="${y}" width="0.1" height="0.1"/>`);
+  teile.push('</g></svg>');
+  return teile.join('\n');
+}
+
+function zeigeVorschau(geo){
+  const f = n => n.toFixed(2);
+  const ring = p => 'M' + p.map(q => f(q[0]) + ',' + f(-q[1])).join('L') + 'Z';
+  const w = geo.wasser.map(pf => `<path fill-rule="evenodd" d="${pf.map(ring).join('')}"/>`).join('');
+  const s = geo.strassen.map(p => `<path d="${ring(p)}"/>`).join('');
+  $('mini').innerHTML = `<defs><clipPath id="kk"><circle r="42"/></clipPath></defs>
+    <circle r="50" fill="#111"/><circle r="42" fill="var(--land)"/>
+    <g clip-path="url(#kk)"><g fill="var(--water)">${w}</g><g fill="var(--road)">${s}</g></g>
+    <path d="M0,-5.5 L4.4,4.7 L0,2.2 L-4.4,4.7Z" fill="#fff" stroke="var(--land)" stroke-width="1"/>
+    <path d="M-30.6,-30.6 A43.3,43.3 0 0 0 -23,36.7" fill="none" stroke="var(--green)" stroke-width="3"/>
+    <path d="M30.6,-30.6 A43.3,43.3 0 0 1 23,36.7" fill="none" stroke="var(--blue)" stroke-width="3"/>
+    <circle cy="-46" r="3.2" fill="#fff"/>`;
+  $('vorschau').classList.add('on');
+}
+
+$('dl').addEventListener('click', () => {
+  if(!letzteSvg) return;
+  const url = URL.createObjectURL(new Blob([letzteSvg], {type:'image/svg+xml'}));
+  const a = document.createElement('a'); a.href = url; a.download = 'form2f-karte.svg';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+});
+}
+</script>
+</body>
+</html>
